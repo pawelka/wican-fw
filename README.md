@@ -5,6 +5,10 @@ Current version has hardcoded support for auto off in 120sec after engine is off
 TODO:
 - Add support for Auto off time (hardcoded 120sec)
 
+In relases you will find image ready to flush on ESP32-S3. To flush it you can use command:
+
+esptool.py -p /dev/tty.usbmodem1201 -b 460800 --chip esp32s3 write_flash --flash_mode dio 0x0 wican-rejsa-v3-20240906.bin
+
 Original page content below.
 
 =================================================================================
