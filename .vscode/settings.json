@@ -1,5 +1,5 @@
 {
-    "idf.adapterTargetName": "esp32c3",
+    "idf.adapterTargetName": "esp32s3",
     "idf.portWin": "COM14",
     "idf.flashType": "UART",
     "files.associations": {
@@ -19,6 +19,26 @@
         "cjson.h": "c",
         "mqtt.h": "c",
         "autopid.h": "c",
-        "cstring": "c"
-    }
+        "cstring": "c",
+        "format": "c",
+        "sdkconfig.h": "c",
+        "*.inc": "c",
+        "cstdlib": "c",
+        "cstdint": "c",
+        "chrono": "c",
+        "functional": "c"
+    },
+    "idf.openOcdConfigs": [
+        "board/esp32s3-builtin.cfg"
+    ],
+    "idf.espIdfPath": "/Users/pawelkar/esp/esp-idf",
+    "idf.pythonBinPath": "/Users/pawelkar/.espressif/python_env/idf5.4_py3.12_env/bin/python",
+    "idf.toolsPath": "/Users/pawelkar/.espressif",
+    "idf.customExtraPaths": "/Users/pawelkar/.espressif/tools/xtensa-esp-elf-gdb/14.2_20240403/xtensa-esp-elf-gdb/bin:/Users/pawelkar/.espressif/tools/riscv32-esp-elf-gdb/14.2_20240403/riscv32-esp-elf-gdb/bin:/Users/pawelkar/.espressif/tools/xtensa-esp-elf/esp-13.2.0_20240530/xtensa-esp-elf/bin:/Users/pawelkar/.espressif/tools/riscv32-esp-elf/esp-13.2.0_20240530/riscv32-esp-elf/bin:/Users/pawelkar/.espressif/tools/esp32ulp-elf/2.38_20240113/esp32ulp-elf/bin:/Users/pawelkar/.espressif/tools/cmake/3.24.0/CMake.app/Contents/bin:/Users/pawelkar/.espressif/tools/openocd-esp32/v0.12.0-esp32-20240821/openocd-esp32/bin:/Users/pawelkar/.espressif/tools/ninja/1.11.1:/Users/pawelkar/.espressif/tools/esp-rom-elfs/20240305",
+    "idf.customExtraVars": {
+        "OPENOCD_SCRIPTS": "/Users/pawelkar/.espressif/tools/openocd-esp32/v0.12.0-esp32-20240821/openocd-esp32/share/openocd/scripts",
+        "ESP_ROM_ELF_DIR": "/Users/pawelkar/.espressif/tools/esp-rom-elfs/20240305/"
+    },
+    "idf.gitPath": "git",
+    "idf.port": "/dev/tty.usbmodem1201"
 }

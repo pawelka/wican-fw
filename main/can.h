@@ -23,8 +23,8 @@
 #define __CAN_H__
 #include "driver/twai.h"
 
-#define TX_GPIO_NUM             	0
-#define RX_GPIO_NUM             	3
+#define TX_GPIO_NUM             	14
+#define RX_GPIO_NUM             	13
 #define CAN_STDBY_GPIO_NUM			6
 
 #define CAN_5K				0

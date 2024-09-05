@@ -58,9 +58,18 @@
 #include "mqtt_client.h"
 #include "ver.h"
 
+
+#define SENSE_V_DIGITAL			1
+#define FORCE_ON_GPIO_NUM		17
+#define SENSE_V_GPIO_NUM		8
+#define SECONDS_TO_STAY_ON      120
+
+#define TAG 		__func__
+
+#if SENSE_V_DIGITAL == 0
+
 #define TIMES              256
 #define GET_UNIT(x)        ((x>>3) & 0x1)
-#define TAG 		__func__
 #if CONFIG_IDF_TARGET_ESP32
 #define ADC_RESULT_BYTE     2
 #define ADC_CONV_LIMIT_EN   1                       //For ESP32, this should always be set to 1
@@ -568,3 +577,70 @@ int8_t sleep_mode_init(uint8_t enable, float sleep_volt)
 
 	return 1;
 }
+
+#else
+
+static float sleep_voltage = 13.0f;
+static uint8_t enable_sleep = 0;
+
+static void check_digital_sensor(void *pvParameters)
+{
+	unsigned long timestamp = 0;
+	bool countdown = false;
+
+    while(1)
+    {
+		unsigned long now = esp_timer_get_time();
+
+		int active = gpio_get_level(SENSE_V_GPIO_NUM);
+		if( !countdown && !active ) 
+		{
+			countdown = true;
+			timestamp = now;              
+			ESP_LOGI(TAG, "Shutdown activated in %d seconds", SECONDS_TO_STAY_ON);
+		} 
+		else if (countdown && active)
+		{
+			countdown = false;
+			timestamp = 0;
+			ESP_LOGI(TAG, "Shutdown canceled");
+   
+		}
+
+		if ( countdown  &&  (now - timestamp) / 1000000L >= SECONDS_TO_STAY_ON ) 
+		{
+			ESP_LOGI(TAG, "Shutdown now");
+			gpio_set_level(FORCE_ON_GPIO_NUM, 0);
+		}
+		else if (countdown)
+		{
+			ESP_LOGI(TAG, "Shutdown in: %d secs", SECONDS_TO_STAY_ON - ((int)((now - timestamp) / 1000000L)));
+		}
+		vTaskDelay(pdMS_TO_TICKS(1000));
+    }
+
+}
+
+int8_t sleep_mode_init(uint8_t enable, float sleep_volt)
+{
+	enable_sleep = enable;
+	gpio_set_direction(SENSE_V_GPIO_NUM, GPIO_MODE_INPUT);
+	gpio_set_pull_mode(SENSE_V_GPIO_NUM, GPIO_PULLUP_ONLY);
+	gpio_set_direction(FORCE_ON_GPIO_NUM, GPIO_MODE_OUTPUT);
+	if(enable_sleep)
+	{
+		gpio_set_level(FORCE_ON_GPIO_NUM, 1);
+	}
+	sleep_voltage = sleep_volt;
+	ESP_LOGW(TAG, "sleep_volt: %2.2f", sleep_volt);
+	xTaskCreate(check_digital_sensor, "check_digital_sensor", 4096, (void*)AF_INET, 5, NULL);
+
+	return 1;
+}
+
+int8_t sleep_mode_get_voltage(float *val)
+{
+	return sleep_voltage; //fixed sleep voltage, my board doesn't support analog read
+}
+
+#endif
