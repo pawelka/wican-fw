@@ -1,3 +1,18 @@
+This fork introduce port for RejsaCAN v3.x compatible board. Especially for v3.0 the version which I have.
+
+Current version has hardcoded support for auto off in 120sec after engine is off (sleeping option has to be enabled from WEB). v3.0 version doesn't have SENSE_V_ANA to read voltage and base on voltage decide when to sleep or support battery alarm.
+
+TODO:
+- Add support for Auto off time (hardcoded 120sec)
+
+In relases you will find image ready to flush on ESP32-S3. To flush it you can use command:
+
+esptool.py -p /dev/tty.usbmodem1201 -b 460800 --chip esp32s3 write_flash --flash_mode dio 0x0 wican-rejsa-v3-20240906.bin
+
+Original page content below.
+
+=================================================================================
+
 <img src="https://github.com/slimelec/ollie-hw/blob/master/images/mpi_logo.png" width=300>
 
 [www.meatpi.com](https://www.meatpi.com)

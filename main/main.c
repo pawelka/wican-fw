@@ -54,17 +54,20 @@
 #include "ftp.h"
 #include "autopid.h"
 #include "wc_mdns.h"
+#include "driver/usb_serial_jtag.h"
+
+#define BUF_SIZE (1024)
 
 #define TAG 		__func__
-#define TX_GPIO_NUM             	0
-#define RX_GPIO_NUM             	3
-#define CONNECTED_LED_GPIO_NUM		8
-#define ACTIVE_LED_GPIO_NUM			9
-#define BLE_EN_PIN_NUM				5
-#define PWR_LED_GPIO_NUM			7
-#define GPIO_OUTPUT_PIN_SEL  ((1ULL<<CONNECTED_LED_GPIO_NUM) | (1ULL<<ACTIVE_LED_GPIO_NUM) | (1ULL<<PWR_LED_GPIO_NUM) | (1ULL<<CAN_STDBY_GPIO_NUM))
-#define BLE_EN_PIN_SEL		(1ULL<<BLE_EN_PIN_NUM)
-#define BLE_Enabled()		(!gpio_get_level(BLE_EN_PIN_NUM))
+#define TX_GPIO_NUM             	14 //check can.c
+#define RX_GPIO_NUM             	13 //check can.c
+#define CONNECTED_LED_GPIO_NUM		10
+#define ACTIVE_LED_GPIO_NUM			11
+// #define BLE_EN_PIN_NUM				5
+#define PWR_LED_GPIO_NUM			7 //not connected
+#define GPIO_OUTPUT_PIN_SEL  ((1ULL<<CONNECTED_LED_GPIO_NUM) | (1ULL<<ACTIVE_LED_GPIO_NUM) | (1ULL<<PWR_LED_GPIO_NUM) | (1ULL<<CAN_STDBY_GPIO_NUM) )
+// #define BLE_EN_PIN_SEL		(1ULL<<BLE_EN_PIN_NUM)
+// #define BLE_Enabled()		(!gpio_get_level(BLE_EN_PIN_NUM))
 
 static QueueHandle_t xMsg_Tx_Queue, xMsg_Rx_Queue, xmsg_ws_tx_queue, xmsg_ble_tx_queue, xmsg_uart_tx_queue, xmsg_obd_rx_queue, xmsg_mqtt_rx_queue;
 static xdev_buffer ucTCP_RX_Buffer;
@@ -359,8 +362,23 @@ static void can_rx_task(void *pvParameters)
 	}
 }
 
+void init_usb_serial(void)
+{
+    // Configure USB SERIAL JTAG
+    usb_serial_jtag_driver_config_t usb_serial_jtag_config = {
+        .rx_buffer_size = BUF_SIZE,
+        .tx_buffer_size = BUF_SIZE,
+    };
+
+    ESP_ERROR_CHECK(usb_serial_jtag_driver_install(&usb_serial_jtag_config));
+    ESP_LOGI("usb_serial_jtag echo", "USB_SERIAL_JTAG init done");
+}
+
 void app_main(void)
 {
+	init_usb_serial();
+
+	
     ESP_ERROR_CHECK(nvs_flash_init());
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
@@ -537,7 +555,7 @@ void app_main(void)
 		{
 			ESP_LOGI(TAG, "Failed to extract firmware version");
 		}
-		sprintf(hardware_version, "WiCAN-%s", HARDWARE_VERSION);
+		sprintf(hardware_version, "WiCAN-%s", hardware_version);
 		ESP_LOGI(TAG, "Hardware version: %s", hardware_version);
 
         if(strstr(running_app_info.project_name, "usb") != 0)
@@ -603,6 +621,7 @@ void app_main(void)
 	// pdTRUE, /* BIT_0 should be cleared before returning. */
 	// pdFALSE, /* Don't wait for both bits, either bit will do. */
 	// portMAX_DELAY);/* Wait forever. */  
+
 	esp_log_level_set("*", ESP_LOG_NONE);
 	// esp_log_level_set("autopid_parser", ESP_LOG_ERROR);
 	// esp_log_level_set("autopid_task", ESP_LOG_ERROR);

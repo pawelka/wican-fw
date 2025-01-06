@@ -61,3 +61,5 @@ docs/node_modules
 .vehicle_profiles/node_modules/
 .vscode/
 managed_components/
+
+.DS_Store
