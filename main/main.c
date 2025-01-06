@@ -555,7 +555,7 @@ void app_main(void)
 		{
 			ESP_LOGI(TAG, "Failed to extract firmware version");
 		}
-		sprintf(hardware_version, "WiCAN-%s", hardware_version);
+		sprintf(hardware_version, "WiCAN-%s", HARDWARE_VERSION);
 		ESP_LOGI(TAG, "Hardware version: %s", hardware_version);
 
         if(strstr(running_app_info.project_name, "usb") != 0)
