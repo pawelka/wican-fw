@@ -116,7 +116,7 @@ static void process_led(bool state)
 
 	if(!can_is_enabled())
 	{
-		gpio_set_level(ACTIVE_LED_GPIO_NUM, 1);
+		gpio_set_level(ACTIVE_LED_GPIO_NUM, !1);
 		current_state = 0;
 		last_change = esp_timer_get_time();
 	}
@@ -136,11 +136,11 @@ static void process_led(bool state)
 	}
 	if(state == 1)
 	{
-		gpio_set_level(ACTIVE_LED_GPIO_NUM, 0);
+		gpio_set_level(ACTIVE_LED_GPIO_NUM, !0);
 	}
 	else
 	{
-		gpio_set_level(ACTIVE_LED_GPIO_NUM, 1);
+		gpio_set_level(ACTIVE_LED_GPIO_NUM, !1);
 	}
 }
 
@@ -397,8 +397,8 @@ void app_main(void)
     //configure GPIO with the given settings
     gpio_config(&io_conf);
 
-	gpio_set_level(CONNECTED_LED_GPIO_NUM, 1);
-	gpio_set_level(ACTIVE_LED_GPIO_NUM, 1);
+	gpio_set_level(CONNECTED_LED_GPIO_NUM, !1);
+	gpio_set_level(ACTIVE_LED_GPIO_NUM, !1);
 
     xMsg_Rx_Queue = xQueueCreate(16, sizeof( xdev_buffer) );
     xMsg_Tx_Queue = xQueueCreate(16, sizeof( xdev_buffer) );
@@ -611,7 +611,7 @@ void app_main(void)
     	sleep_mode_init(0, 13.1f);
     }
 
-    gpio_set_level(PWR_LED_GPIO_NUM, 1);
+    gpio_set_level(PWR_LED_GPIO_NUM, !1);
     
 
 	// xEventTask = xEventGroupCreate();

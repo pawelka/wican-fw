@@ -115,7 +115,7 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
             }
 			
             esp_mqtt_client_subscribe(client, mqtt_cmd_topic, 0);
-			gpio_set_level(mqtt_led, 0);
+			gpio_set_level(mqtt_led, !0);
 			esp_mqtt_client_publish(client, mqtt_status_topic, "{\"status\": \"online\"}", 0, 0, 1);
 
             xEventGroupSetBits(s_mqtt_event_group, MQTT_CONNECTED_BIT);
@@ -123,7 +123,7 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
 		case MQTT_EVENT_DISCONNECTED:
 			ESP_LOGI(TAG, "MQTT_EVENT_DISCONNECTED");
 			xEventGroupClearBits(s_mqtt_event_group, MQTT_CONNECTED_BIT);
-			gpio_set_level(mqtt_led, 1);
+			gpio_set_level(mqtt_led, !1);
 	//        esp_mqtt_client_stop(client);
 			break;
 
