@@ -20,6 +20,7 @@
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "freertos/semphr.h"
 #include  "freertos/queue.h"
 #include "freertos/event_groups.h"
 #include "esp_wifi.h"
@@ -44,8 +45,11 @@
 #include "esp_ota_ops.h"
 #include "nvs.h"
 #include "nvs_flash.h"
-#include "driver/adc.h"
-#include "esp_adc_cal.h"
+// #include "driver/adc.h"
+#include "esp_adc/adc_continuous.h"
+// #include "esp_adc_cal.h"
+#include "esp_adc/adc_cali.h"
+#include "esp_adc/adc_cali_scheme.h"
 // #include "esp_adc/adc_cali.h"
 #include "sleep_mode.h"
 #include "ble.h"
@@ -59,9 +63,11 @@
 #include "ver.h"
 
 
-#define SENSE_V_DIGITAL			1
+#define SENSE_V_DIGITAL			0
 #define FORCE_ON_GPIO_NUM		17
-#define SENSE_V_GPIO_NUM		8
+#define SENSE_V_DIG_GPIO_NUM	8
+#define SENSE_V_ANA_GPIO_NUM	9
+
 #define SECONDS_TO_STAY_ON      120
 
 #define TAG 		__func__
@@ -69,49 +75,13 @@
 #if SENSE_V_DIGITAL == 0
 
 #define TIMES              256
-#define GET_UNIT(x)        ((x>>3) & 0x1)
-#if CONFIG_IDF_TARGET_ESP32
-#define ADC_RESULT_BYTE     2
-#define ADC_CONV_LIMIT_EN   1                       //For ESP32, this should always be set to 1
-#define ADC_CONV_MODE       ADC_CONV_SINGLE_UNIT_1  //ESP32 only supports ADC1 DMA mode
-#define ADC_OUTPUT_TYPE     ADC_DIGI_OUTPUT_FORMAT_TYPE1
-#elif CONFIG_IDF_TARGET_ESP32S2
-#define ADC_RESULT_BYTE     2
-#define ADC_CONV_LIMIT_EN   0
-#define ADC_CONV_MODE       ADC_CONV_BOTH_UNIT
-#define ADC_OUTPUT_TYPE     ADC_DIGI_OUTPUT_FORMAT_TYPE2
-#elif CONFIG_IDF_TARGET_ESP32C3 || CONFIG_IDF_TARGET_ESP32H2 || CONFIG_IDF_TARGET_ESP32C2
-#define ADC_RESULT_BYTE     4
-#define ADC_CONV_LIMIT_EN   0
-#define ADC_CONV_MODE       ADC_CONV_ALTER_UNIT     //ESP32C3 only supports alter mode
-#define ADC_OUTPUT_TYPE     ADC_DIGI_OUTPUT_FORMAT_TYPE2
-#elif CONFIG_IDF_TARGET_ESP32S3
 #define ADC_RESULT_BYTE     4
 #define ADC_CONV_LIMIT_EN   0
 #define ADC_CONV_MODE       ADC_CONV_SINGLE_UNIT_1
 #define ADC_OUTPUT_TYPE     ADC_DIGI_OUTPUT_FORMAT_TYPE2
-#endif
+static adc_channel_t channel[1] = {ADC_CHANNEL_8};
 
-#if CONFIG_IDF_TARGET_ESP32C3 || CONFIG_IDF_TARGET_ESP32S3 || CONFIG_IDF_TARGET_ESP32H2 || CONFIG_IDF_TARGET_ESP32C2
-#if CONFIG_IDF_TARGET_ESP32C3
-static uint16_t adc1_chan_mask = BIT(4);
-static adc_channel_t channel[1] = {ADC1_CHANNEL_4};
-#else
-static uint16_t adc1_chan_mask = BIT(6);
-//static uint16_t adc2_chan_mask = BIT(0);
-static adc_channel_t channel[1] = {ADC1_CHANNEL_6};
-#endif
-#endif
-#if CONFIG_IDF_TARGET_ESP32S2
-static uint16_t adc1_chan_mask = BIT(2) | BIT(3);
-static uint16_t adc2_chan_mask = BIT(0);
-static adc_channel_t channel[3] = {ADC1_CHANNEL_2, ADC1_CHANNEL_3, (ADC2_CHANNEL_0 | 1 << 3)};
-#endif
-#if CONFIG_IDF_TARGET_ESP32
-static uint16_t adc1_chan_mask = BIT(7);
-static uint16_t adc2_chan_mask = 0;
-static adc_channel_t channel[1] = {ADC1_CHANNEL_7};
-#endif
+
 //#define THRESHOLD_VOLTAGE		13.0f
 // #define SLEEP_TIME_DELAY		(180*1000*1000)
 #define WAKEUP_TIME_DELAY		(200*1000)
@@ -123,7 +93,7 @@ static EventGroupHandle_t s_mqtt_event_group = NULL;
 static float sleep_voltage = 13.1f;
 static uint8_t enable_sleep = 0;
 static QueueHandle_t voltage_queue = NULL;
-static esp_adc_cal_characteristics_t adc1_chars;
+// static esp_adc_cal_characteristics_t adc1_chars;
 
 
 static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_t event_id, void *event_data)
@@ -224,20 +194,28 @@ static void mqtt_init(void)
     }
 }
 
+static TaskHandle_t s_task_handle;
 
-static void continuous_adc_init(uint16_t adc1_chan_mask, uint16_t adc2_chan_mask, adc_channel_t *channel, uint8_t channel_num)
+static bool IRAM_ATTR s_conv_done_cb(adc_continuous_handle_t handle, const adc_continuous_evt_data_t *edata, void *user_data)
 {
-    adc_digi_init_config_t adc_dma_config = {
-        .max_store_buf_size = 1024,
-        .conv_num_each_intr = TIMES,
-        .adc1_chan_mask = adc1_chan_mask,
-//        .adc2_chan_mask = adc2_chan_mask,
-    };
-    ESP_ERROR_CHECK(adc_digi_initialize(&adc_dma_config));
+    BaseType_t mustYield = pdFALSE;
+    //Notify that ADC continuous driver has done enough number of conversions
+    vTaskNotifyGiveFromISR(s_task_handle, &mustYield);
 
-    adc_digi_configuration_t dig_cfg = {
-        .conv_limit_en = ADC_CONV_LIMIT_EN,
-        .conv_limit_num = 250,
+    return (mustYield == pdTRUE);
+}
+
+static void continuous_adc_init(adc_channel_t *channel, uint8_t channel_num, adc_continuous_handle_t *out_handle)
+{
+	adc_continuous_handle_t handle = NULL;
+
+    adc_continuous_handle_cfg_t adc_config = {
+        .max_store_buf_size = 1024,
+        .conv_frame_size = TIMES,
+    };
+    ESP_ERROR_CHECK(adc_continuous_new_handle(&adc_config, &handle));
+
+    adc_continuous_config_t dig_cfg = {
         .sample_freq_hz = 10 * 1000,
         .conv_mode = ADC_CONV_MODE,
         .format = ADC_OUTPUT_TYPE,
@@ -246,21 +224,20 @@ static void continuous_adc_init(uint16_t adc1_chan_mask, uint16_t adc2_chan_mask
     adc_digi_pattern_config_t adc_pattern[SOC_ADC_PATT_LEN_MAX] = {0};
     dig_cfg.pattern_num = channel_num;
     for (int i = 0; i < channel_num; i++) {
-        uint8_t unit = GET_UNIT(channel[i]);
-        uint8_t ch = channel[i] & 0x7;
+	
         adc_pattern[i].atten = ADC_ATTEN_DB_11;
-        adc_pattern[i].channel = ch;
-        adc_pattern[i].unit = unit;
+        adc_pattern[i].channel = channel[i];
+        adc_pattern[i].unit = ADC_UNIT_1;
         adc_pattern[i].bit_width = SOC_ADC_DIGI_MAX_BITWIDTH;
 
-        ESP_LOGI(TAG, "adc_pattern[%d].atten is :%x", i, adc_pattern[i].atten);
-        ESP_LOGI(TAG, "adc_pattern[%d].channel is :%x", i, adc_pattern[i].channel);
-        ESP_LOGI(TAG, "adc_pattern[%d].unit is :%x", i, adc_pattern[i].unit);
+        ESP_LOGI(TAG, "adc_pattern[%d].atten is :%"PRIx8, i, adc_pattern[i].atten);
+        ESP_LOGI(TAG, "adc_pattern[%d].channel is :%"PRIx8, i, adc_pattern[i].channel);
+        ESP_LOGI(TAG, "adc_pattern[%d].unit is :%"PRIx8, i, adc_pattern[i].unit);
     }
     dig_cfg.adc_pattern = adc_pattern;
-    ESP_ERROR_CHECK(adc_digi_controller_configure(&dig_cfg));
-    esp_adc_cal_characterize(ADC_UNIT_1, ADC_ATTEN_DB_11, ADC_WIDTH_BIT_DEFAULT, 0, &adc1_chars);
+    ESP_ERROR_CHECK(adc_continuous_config(handle, &dig_cfg));
 
+    *out_handle = handle;
 
 }
 
@@ -277,25 +254,43 @@ static void continuous_adc_init(uint16_t adc1_chan_mask, uint16_t adc2_chan_mask
 #elif CONFIG_IDF_TARGET_ESP32S3
 #define ADC_EXAMPLE_CALI_SCHEME     ESP_ADC_CAL_VAL_EFUSE_TP_FIT
 #endif
-static esp_adc_cal_characteristics_t adc1_chars;
-static bool adc_calibration_init(void)
+// static esp_adc_cal_characteristics_t adc1_chars;
+static bool adc_calibration_init(adc_unit_t unit, adc_channel_t channel, adc_atten_t atten, adc_cali_handle_t *out_handle)
 {
-    esp_err_t ret;
-    bool cali_enable = false;
+     adc_cali_handle_t handle = NULL;
+    esp_err_t ret = ESP_FAIL;
+    bool calibrated = false;
 
-    ret = esp_adc_cal_check_efuse(ADC_EXAMPLE_CALI_SCHEME);
-    if (ret == ESP_ERR_NOT_SUPPORTED) {
-        ESP_LOGW(TAG, "Calibration scheme not supported, skip software calibration");
-    } else if (ret == ESP_ERR_INVALID_VERSION) {
-        ESP_LOGW(TAG, "eFuse not burnt, skip software calibration");
-    } else if (ret == ESP_OK) {
-        cali_enable = true;
-        esp_adc_cal_characterize(ADC_UNIT_1, ADC_EXAMPLE_ATTEN, ADC_WIDTH_BIT_DEFAULT, 0, &adc1_chars);
-    } else {
-        ESP_LOGE(TAG, "Invalid arg");
+    if (!calibrated) {
+        ESP_LOGI(TAG, "calibration scheme version is %s", "Curve Fitting");
+        adc_cali_curve_fitting_config_t cali_config = {
+            .unit_id = unit,
+            .chan = channel,
+            .atten = atten,
+            .bitwidth = ADC_BITWIDTH_DEFAULT,
+        };
+        ret = adc_cali_create_scheme_curve_fitting(&cali_config, &handle);
+        if (ret == ESP_OK) {
+            calibrated = true;
+        }
     }
 
-    return cali_enable;
+    *out_handle = handle;
+    if (ret == ESP_OK) {
+        ESP_LOGI(TAG, "Calibration Success");
+    } else if (ret == ESP_ERR_NOT_SUPPORTED || !calibrated) {
+        ESP_LOGW(TAG, "eFuse not burnt, skip software calibration");
+    } else {
+        ESP_LOGE(TAG, "Invalid arg or no memory");
+    }
+
+    return calibrated;
+}
+
+static void adc_calibration_deinit(adc_cali_handle_t handle)
+{
+	ESP_LOGI(TAG, "deregister %s calibration scheme", "Curve Fitting");
+    ESP_ERROR_CHECK(adc_cali_delete_scheme_curve_fitting(handle));
 }
 
 #if !CONFIG_IDF_TARGET_ESP32
@@ -316,6 +311,8 @@ static bool check_valid_data(const adc_digi_output_data_t *data)
 
 static void adc_task(void *pvParameters)
 {
+	s_task_handle = xTaskGetCurrentTaskHandle();
+
     esp_err_t ret;
     uint32_t ret_num = 0;
     uint8_t result[TIMES] = {0};
@@ -337,9 +334,16 @@ static void adc_task(void *pvParameters)
     }
 
     memset(result, 0xcc, TIMES);
-    adc_calibration_init();
-    continuous_adc_init(adc1_chan_mask, adc1_chan_mask, channel, sizeof(channel) / sizeof(adc_channel_t));
-    adc_digi_start();
+	adc_cali_handle_t adc1_cali_handle = NULL;
+    adc_calibration_init(ADC_UNIT_1, channel[0], ADC_ATTEN_DB_11, &adc1_cali_handle);
+	adc_continuous_handle_t handle = NULL;
+    continuous_adc_init(channel, sizeof(channel) / sizeof(adc_channel_t), &handle);
+	    adc_continuous_evt_cbs_t cbs = {
+        .on_conv_done = s_conv_done_cb,
+    };
+    ESP_ERROR_CHECK(adc_continuous_register_event_callbacks(handle, &cbs, NULL));
+    ESP_ERROR_CHECK(adc_continuous_start(handle));
+
 
 	if(config_server_get_sleep_time((uint32_t*)&sleep_time) == -1)
 	{
@@ -347,87 +351,47 @@ static void adc_task(void *pvParameters)
 	}
 	sleep_time *= (60*1000000); //convert to microseconds
 
-    while(1)
-    {
-    	uint32_t count = 0;
+	while (1) {
+		uint32_t count = 0;
     	uint64_t avg = 0;
     	uint32_t adc_val = 0;
-    	for(int j = 0; j < 10; j++)
-    	{
-			ret = adc_digi_read_bytes(result, TIMES, &ret_num, ADC_MAX_DELAY);
-			if (ret == ESP_OK || ret == ESP_ERR_INVALID_STATE)
-			{
-				if (ret == ESP_ERR_INVALID_STATE)
-				{
-					/**
-					 * @note 1
-					 * Issue:
-					 * As an example, we simply print the result out, which is super slow. Therefore the conversion is too
-					 * fast for the task to handle. In this condition, some conversion results lost.
-					 *
-					 * Reason:
-					 * When this error occurs, you will usually see the task watchdog timeout issue also.
-					 * Because the conversion is too fast, whereas the task calling `adc_digi_read_bytes` is slow.
-					 * So `adc_digi_read_bytes` will hardly block. Therefore Idle Task hardly has chance to run. In this
-					 * example, we add a `vTaskDelay(1)` below, to prevent the task watchdog timeout.
-					 *
-					 * Solution:
-					 * Either decrease the conversion speed, or increase the frequency you call `adc_digi_read_bytes`
-					 */
-				}
+		ret = adc_continuous_read(handle, result, TIMES, &ret_num, 0);
+		if (ret == ESP_OK) {
+			// ESP_LOGI(TAG, "ret is %x, ret_num is %"PRIu32" bytes", ret, ret_num);
+			count = 0;
+			avg = 0;
+			for (int i = 0; i < ret_num; i += SOC_ADC_DIGI_RESULT_BYTES) {
+				adc_digi_output_data_t *p = (adc_digi_output_data_t*)&result[i];
+				/* Check the channel number validation, the data is invalid if the channel num exceed the maximum channel */
+				if (check_valid_data(p)) {
+					count++;
+					int voltage;
+					ESP_ERROR_CHECK(adc_cali_raw_to_voltage(adc1_cali_handle, p->type2.data, &voltage));
+					avg += voltage;
 
-	//            ESP_LOGI("TASK:", "ret is %x, ret_num is %d", ret, ret_num);
-				count = 0;
-				avg = 0;
-				for (int i = 0; i < ret_num; i += ADC_RESULT_BYTE)
-				{
-					adc_digi_output_data_t *p = (void*)&result[i];
+					// ESP_LOGI(TAG, "Unit: %d, Channel: %d, Value: %d", p->type2.unit+1, p->type2.channel, p->type2.data);
+				} else {
+					ESP_LOGW(TAG, "Invalid data [%d_%d_%x]", p->type2.unit+1, p->type2.channel, p->type2.data);
 
-					if (ADC_CONV_MODE == ADC_CONV_SINGLE_UNIT_1 || ADC_CONV_MODE == ADC_CONV_ALTER_UNIT)
-					{
-						if (check_valid_data(p))
-						{
-							count++;
-							avg += (esp_adc_cal_raw_to_voltage(p->type2.data, &adc1_chars));
-	//                        ESP_LOGI(TAG, "Unit: %d,_Channel: %d, Value: %d", p->type2.unit+1, p->type2.channel, p->type2.data);
-						}
-						else
-						{
-							// abort();
-							ESP_LOGI(TAG, "Invalid data [%d_%d_%x]", p->type2.unit+1, p->type2.channel, p->type2.data);
-						}
-					}
 				}
-				//See `note 1`
-//				ESP_LOGI(TAG, "value: %u",(uint32_t)(avg/count));
-				vTaskDelay(10);
 			}
-			else if (ret == ESP_ERR_TIMEOUT)
-			{
-				/**
-				 * ``ESP_ERR_TIMEOUT``: If ADC conversion is not finished until Timeout, you'll get this return error.
-				 * Here we set Timeout ``portMAX_DELAY``, so you'll never reach this branch.
-				 */
-				ESP_LOGW(TAG, "No data, increase timeout or reduce conv_num_each_intr");
-				vTaskDelay(2000);
-			}
-    	}
+			/**
+			 * Because printing is slow, so every time you call `ulTaskNotifyTake`, it will immediately return.
+			 * To avoid a task watchdog timeout, add a delay here. When you replace the way you process the data,
+			 * usually you don't need this delay (as this task will block for a while).
+			 */
+			vTaskDelay(10);
+		} else if (ret == ESP_ERR_TIMEOUT) {
+			//We try to read `EXAMPLE_READ_LEN` until API returns timeout, which means there's no available data
+			ESP_LOGW(TAG, "No data, increase timeout or reduce conv_num_each_intr");
+			vTaskDelay(2000);
+			continue;
+		}
+
     	adc_val = (uint32_t)(avg/count);
-    	float battery_voltage;
 
-    	if(project_hardware_rev == WICAN_V300)
-    	{
-    		battery_voltage = (adc_val*116)/(16*1000.0f);
-    	}
-    	else if(project_hardware_rev == WICAN_USB_V100)
-    	{
-    		battery_voltage = (adc_val*106.49f)/(6.49f*1000.0f);
-    	}
-    	battery_voltage += 0.2;
-    	if(project_hardware_rev == WICAN_V210)
-    	{
-    		battery_voltage = -1;
-    	}
+    	float battery_voltage = (adc_val*14.21f)/(3000.0f);
+		// ESP_LOGI(TAG, "battery voltage, value: %lu, voltage: %f", adc_val, battery_voltage);
 
     	xQueueOverwrite( voltage_queue, &battery_voltage );
     	if(enable_sleep == 1)
@@ -554,9 +518,9 @@ static void adc_task(void *pvParameters)
     	}
     }
 
-    adc_digi_stop();
-    ret = adc_digi_deinitialize();
-    assert(ret == ESP_OK);
+    ESP_ERROR_CHECK(adc_continuous_stop(handle));
+    ESP_ERROR_CHECK(adc_continuous_deinit(handle));
+	adc_calibration_deinit(adc1_cali_handle);
 }
 
 int8_t sleep_mode_get_voltage(float *val)
@@ -598,7 +562,7 @@ static void check_digital_sensor(void *pvParameters)
     {
 		unsigned long now = esp_timer_get_time();
 
-		int active = gpio_get_level(SENSE_V_GPIO_NUM);
+		int active = gpio_get_level(SENSE_V_DIG_GPIO_NUM);
 		if( !countdown && !active ) 
 		{
 			countdown = true;
@@ -630,8 +594,8 @@ static void check_digital_sensor(void *pvParameters)
 int8_t sleep_mode_init(uint8_t enable, float sleep_volt)
 {
 	enable_sleep = enable;
-	gpio_set_direction(SENSE_V_GPIO_NUM, GPIO_MODE_INPUT);
-	gpio_set_pull_mode(SENSE_V_GPIO_NUM, GPIO_PULLUP_ONLY);
+	gpio_set_direction(SENSE_V_DIG_GPIO_NUM, GPIO_MODE_INPUT);
+	gpio_set_pull_mode(SENSE_V_DIG_GPIO_NUM, GPIO_PULLUP_ONLY);
 	gpio_set_direction(FORCE_ON_GPIO_NUM, GPIO_MODE_OUTPUT);
 	if(enable_sleep)
 	{

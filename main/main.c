@@ -583,8 +583,8 @@ void app_main(void)
         }
     }
 	wc_mdns_init((char*)uid, hardware_version, firmware_version);
-    xTaskCreate(can_rx_task, "can_rx_task", 1024*3, (void*)AF_INET, 5, NULL);
-    xTaskCreate(can_tx_task, "can_tx_task", 1024*3, (void*)AF_INET, 5, NULL);
+    // xTaskCreate(can_rx_task, "can_rx_task", 1024*3, (void*)AF_INET, 5, NULL);
+    // xTaskCreate(can_tx_task, "can_tx_task", 1024*3, (void*)AF_INET, 5, NULL);
 
     if(project_hardware_rev != WICAN_V210)
     {
@@ -622,7 +622,7 @@ void app_main(void)
 	// pdFALSE, /* Don't wait for both bits, either bit will do. */
 	// portMAX_DELAY);/* Wait forever. */  
 
-	esp_log_level_set("*", ESP_LOG_NONE);
+	esp_log_level_set("*", ESP_LOG_DEBUG);
 	// esp_log_level_set("autopid_parser", ESP_LOG_ERROR);
 	// esp_log_level_set("autopid_task", ESP_LOG_ERROR);
 	// esp_log_level_set("elm327_process_cmd", ESP_LOG_ERROR);
