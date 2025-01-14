@@ -412,7 +412,7 @@ static void adc_task(void *pvParameters)
 				{
 					if(battery_voltage > sleep_voltage)
 					{
-						ESP_LOGI(TAG, "low voltage, value: %lu, voltage: %f",adc_val, battery_voltage);
+						ESP_LOGI(TAG, "high voltage, value: %lu, voltage: %f",adc_val, battery_voltage);
 						sleep_state = RUN_STATE;
 					}
 
